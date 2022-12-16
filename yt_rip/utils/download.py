@@ -1,5 +1,10 @@
 from typing import List, Dict
 
+from math import ceil
+
+import librosa
+import soundfile as sf
+
 from yt_dlp import YoutubeDL
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -28,6 +33,7 @@ def get_video_ids_from_playlist(playlist_url: str, only_captions: bool = False) 
 
     return video_ids
 
+
 def preprocess_transcriptions(transcriptions: List[Dict]) -> List[Dict]:
     """Preprocesses list of transcriptions.
     Removes items containing music. Combines transcriptions if less that 1s between them
@@ -53,7 +59,6 @@ def preprocess_transcriptions(transcriptions: List[Dict]) -> List[Dict]:
 
     for item in transcriptions:
         if not validate_item(item):
-            print(item['text'])
             if previous_item:
                 new_transcriptions.append(previous_item)
                 previous_item = None
@@ -76,3 +81,73 @@ def preprocess_transcriptions(transcriptions: List[Dict]) -> List[Dict]:
         new_transcriptions.append(previous_item)
 
     return new_transcriptions
+
+
+def download_audio_from_transcriptions(
+    video_id: str,
+    transcriptions: List[Dict],
+    output_dir: str,
+    sample_rate: int = 22050,
+) -> (List[str], List[str]):
+    """Download each item in the transcription list as separate audio files.
+    Downloads audio of entire video then splits using librosa
+
+    Args:
+        video_id (str): youtube video id
+        transcriptions (List[Dict]): List of dictionaries containing transcription data
+        output_dir (str): Output directory
+        sample_rate (int): sample rate for audio conversion
+
+    Returns:
+        List of (text, filename) tuples
+    """
+    url = f'https://www.youtube.com/watch?v={video_id}'
+
+    for idx, item in enumerate(transcriptions):
+        start = item['start']
+        end = start + item['duration']
+        text = item['text']
+
+    # download audio
+    ydl_opts = {
+        'outtmpl': f"{output_dir}/{video_id}_audio.%(ext)s",
+        'format': 'm4a/bestaudio/best',
+        'postprocessors': [{  # Extract audio using ffmpeg
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'wav',
+        }],
+        'postprocessor_args': [
+            '-ar', str(sample_rate),
+            '-ac', '1',
+            '-acodec', 'pcm_s16le',
+            '-f', 'WAV',
+        ],
+        'prefer_ffmpeg': True,
+    }
+
+    with YoutubeDL(ydl_opts) as ydl:
+        ydl.download(url)
+
+    root_filename = f"{output_dir}/{video_id}_audio.wav"
+    audio, sample_rate = librosa.load(root_filename)
+
+    annotations = []
+    filenames = []
+    for idx, item in enumerate(transcriptions):
+        start = item['start']
+        end = start + item['duration']
+        text = item['text']
+
+        start_index = ceil(sample_rate*start)
+        end_index = ceil(sample_rate*end)
+        filename = f"{output_dir}/{video_id}_{idx+1:04}.wav"
+        sf.write(
+            filename,
+            audio[start_index:end_index],
+            sample_rate
+        )
+
+        annotations.append(text)
+        filenames.append(filename)
+
+    return annotations, filenames
