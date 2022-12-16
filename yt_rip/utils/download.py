@@ -181,6 +181,9 @@ def download_audio_from_playlist(playlist_url, output_dir, overwrite_metadata = 
     for video_id in video_ids:
 
         transcriptions = YouTubeTranscriptApi.get_transcript(video_id)
+
+        transcriptions = preprocess_transcriptions(transcriptions)
+
         annotations, filenames = download_audio_from_transcriptions(
             video_id,
             transcriptions,
