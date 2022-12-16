@@ -1,6 +1,10 @@
 from typing import List, Dict
 
+import csv
+
 from math import ceil
+
+from pathlib import Path
 
 import librosa
 import soundfile as sf
@@ -151,3 +155,44 @@ def download_audio_from_transcriptions(
         filenames.append(filename)
 
     return annotations, filenames
+
+
+def download_audio_from_playlist(playlist_url, output_dir, overwrite_metadata = False):
+    """ Download audio from playlist videos where closed captions are available and split
+
+    Args:
+        playlist_url (str): URL of youtube playlist
+        output_dir (str): Root directory to place audio files and transciptions
+        overwrite_metadata (bool): Choose to overwrite metadata
+    """
+
+    video_ids = get_video_ids_from_playlist(playlist_url, only_captions=True)
+
+    output_path_audio = Path(output_dir) / 'wavs'
+    output_path_audio.mkdir(parents=True, exist_ok=True)
+
+    if overwrite_metadata:
+        write_mode = 'w'
+    else:
+        write_mode = 'a'
+
+    all_annotations = []
+    all_filenames = []
+    for video_id in video_ids:
+
+        transcriptions = YouTubeTranscriptApi.get_transcript(video_id)
+        annotations, filenames = download_audio_from_transcriptions(
+            video_id,
+            transcriptions,
+            str(output_path_audio)
+        )
+
+        all_annotations.extend(annotations)
+        all_filenames.extend(filenames)
+
+    output_path_metadata = Path(output_dir) / 'metadata.csv'
+
+    with output_path_metadata.open(write_mode) as csvfile:
+        writer = csv.writer(csvfile, delimiter='|')
+        for filename, annotation in zip(all_filenames, all_annotations):
+            writer.writerow([filename, annotation, annotation])
